@@ -1,8 +1,9 @@
 name: 테스트
 
 on:
+  # PR 이 열린 브랜치는 pull_request 로만 실행해 중복 실행을 피한다
   push:
-    branches-ignore: []
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
