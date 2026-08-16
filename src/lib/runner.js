@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { dumpStructure } from './dom.js';
 import {
   launchBrowser,
   newContext,
@@ -29,6 +31,24 @@ const LABEL = {
   [RESULT.ERROR]: '오류',
   skipped: '건너뜀',
 };
+
+/**
+ * 실패 시점의 페이지 구조를 아티팩트로 저장한다.
+ * 여기 담긴 clickables / forms 를 보고 *_ATTEND_SELECTOR 등을 확정하면 된다.
+ */
+async function dumpDebug(page, key, log) {
+  try {
+    const structure = await dumpStructure(page);
+    fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+    const file = path.join(ARTIFACT_DIR, `debug-${key}.json`);
+    fs.writeFileSync(file, JSON.stringify(structure, null, 2));
+    log(`  진단 정보 저장: ${file}`);
+    return file;
+  } catch (err) {
+    log(`  [warn] 진단 정보 저장 실패: ${err.message.split('\n')[0]}`);
+    return null;
+  }
+}
 
 /** 한 사이트 처리 (세션 재사용 → 실패 시 로그인 → 출석) */
 async function runSite(browser, site, { headed, log }) {
@@ -62,6 +82,7 @@ async function runSite(browser, site, { headed, log }) {
           result: RESULT.LOGIN_REQUIRED,
           message: res.reason,
           shot: await screenshot(page, `${site.key}-login-fail`),
+          debug: await dumpDebug(page, site.key, log),
         };
       }
       log('  로그인 성공');
@@ -84,6 +105,10 @@ async function runSite(browser, site, { headed, log }) {
 
     if (out.result === RESULT.SUCCESS || out.result === RESULT.ALREADY) {
       await saveState(context, site.key);
+    } else {
+      // 실패한 경우 그 자리에서 마크업을 덤프해 둔다.
+      // 첫 실패 실행의 아티팩트만으로 셀렉터를 확정할 수 있어 discover 재실행이 불필요.
+      out.debug = await dumpDebug(page, site.key, log);
     }
 
     return { key: site.key, name: site.name, ...out };

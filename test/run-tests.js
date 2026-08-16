@@ -3,12 +3,13 @@
  *   node test/run-tests.js
  */
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { createServer } from './fixture-server.js';
 import { runAll } from '../src/lib/runner.js';
 import { RESULT } from '../src/lib/attend.js';
 import { classify } from '../src/lib/attend.js';
 
-const PORTS = { A: 8181, B: 8182, C: 8183, D: 8184, E: 8185 };
+const PORTS = { A: 8181, B: 8182, C: 8183, D: 8184, E: 8185, F: 8186, G: 8187 };
 
 function siteFor(key, port, creds = { id: 'testuser', pw: 'testpw' }) {
   const base = `http://127.0.0.1:${port}`;
@@ -73,6 +74,10 @@ async function main() {
   await start('C', PORTS.C); // onclick div + 페이지 문구
   await start('A', PORTS.D, { attended: true }); // 이미 출석함
   await start('A', PORTS.E); // 잘못된 비밀번호
+  // 아이디 입력란 name 이 기본 후보에 없음 → 폴백 경로.
+  // 헤더 검색창을 아이디 칸으로 오인하면 로그인이 실패한다.
+  await start('A', PORTS.F, { loginIdName: 'mb_id_login' });
+  await start('NONE', PORTS.G); // 출석 버튼 없음 → 진단 덤프 검증
 
   try {
     console.log('\n[2] 브라우저 통합 테스트 (로컬 픽스처)');
@@ -82,6 +87,8 @@ async function main() {
       siteFor('varC', PORTS.C),
       siteFor('already', PORTS.D),
       siteFor('badpw', PORTS.E, { id: 'testuser', pw: 'wrong' }),
+      siteFor('oddid', PORTS.F),
+      siteFor('nobutton', PORTS.G),
     ];
 
     const results = await runAll(sites, { retries: 0 });
@@ -106,6 +113,23 @@ async function main() {
     check('로그인 URL 후보 탐색이 동작', () =>
       assert.ok(by.varA.result !== RESULT.ERROR, '후보 탐색 실패')
     );
+    check('아이디 입력란을 헤더 검색창과 혼동하지 않음', () =>
+      assert.equal(
+        by.oddid.result,
+        RESULT.SUCCESS,
+        '폼 범위를 벗어나 검색창에 아이디를 입력한 것으로 보임: ' + JSON.stringify(by.oddid)
+      )
+    );
+    check('출석 버튼이 없으면 not_found 로 보고', () =>
+      assert.equal(by.nobutton.result, RESULT.NOT_FOUND, JSON.stringify(by.nobutton))
+    );
+    check('실패 시 진단 덤프를 자동 생성', () => {
+      const f = by.nobutton.debug;
+      assert.ok(f && fs.existsSync(f), '진단 파일 없음: ' + f);
+      const dump = JSON.parse(fs.readFileSync(f, 'utf8'));
+      assert.ok(Array.isArray(dump.clickables), 'clickables 누락');
+      assert.ok(dump.bodyText.includes('준비중'), '페이지 본문 누락');
+    });
 
     // ── 4. 세션 재사용 (2일차 이후 흐름) ───────────────────
     console.log('\n[4] 저장된 세션 재사용');

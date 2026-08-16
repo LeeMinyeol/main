@@ -43,6 +43,48 @@ async function resolveLoginPage(page, site, log) {
 }
 
 /**
+ * 비밀번호 필드가 속한 폼 안에서만 아이디 입력란을 찾는다.
+ * 후보 셀렉터 → 폼 내 첫 텍스트성 입력창 순으로 시도한다.
+ */
+async function findIdFieldInSameForm(pwField, selectors) {
+  const pwHandle = await pwField.elementHandle();
+  if (!pwHandle) return null;
+
+  const found = await pwHandle.evaluateHandle((pw, sels) => {
+    const scope = pw.closest('form') || pw.ownerDocument.body;
+    const visible = (el) => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+
+    for (const sel of sels) {
+      let el;
+      try {
+        el = scope.querySelector(sel);
+      } catch {
+        continue; // 잘못된 셀렉터
+      }
+      if (visible(el) && el !== pw) return el;
+    }
+
+    // 후보가 안 맞으면 폼 안의 첫 텍스트성 입력창
+    const TEXTY = ['text', 'email', 'tel', ''];
+    for (const el of scope.querySelectorAll('input')) {
+      if (el !== pw && TEXTY.includes(el.type) && visible(el)) return el;
+    }
+    return null;
+  }, selectors);
+
+  const el = found.asElement();
+  if (!el) {
+    await found.dispose().catch(() => {});
+    return null;
+  }
+  return el;
+}
+
+/**
  * 로그인 수행.
  * @returns {{ok: boolean, reason?: string, loginUrl?: string}}
  */
@@ -56,24 +98,18 @@ export async function login(page, site, log = console.log) {
     return { ok: false, reason: '로그인 페이지를 찾지 못함 (LOGIN_URL 환경변수로 지정 필요)' };
   }
 
-  const idField = await firstVisible(
-    page,
-    site.idSelector ? [site.idSelector] : COMMON.idSelectors
-  );
   const pwField = found.pwField;
+  const idSelectors = site.idSelector ? [site.idSelector] : COMMON.idSelectors;
 
+  // 아이디 입력란은 반드시 비밀번호 필드와 같은 폼 안에서 찾는다.
+  // 페이지 전체를 뒤지면 헤더의 검색창(대부분의 쇼핑몰에 있고 DOM 상 로그인 폼보다
+  // 앞에 온다)에 아이디를 입력해버린다.
+  const idField = await findIdFieldInSameForm(pwField, idSelectors);
   if (!idField) {
-    // 마지막 수단: 비밀번호 필드와 같은 폼 안의 첫 text 입력창
-    const fallback = await firstVisible(page, [
-      'form input[type="text"]',
-      'input[type="text"]',
-      'input:not([type])',
-    ]);
-    if (!fallback) return { ok: false, reason: '아이디 입력란을 찾지 못함' };
-    await fallback.fill(site.id);
-  } else {
-    await idField.fill(site.id);
+    return { ok: false, reason: '아이디 입력란을 찾지 못함 (ID_SELECTOR 환경변수로 지정 필요)' };
   }
+
+  await idField.fill(site.id);
   await pwField.fill(site.pw);
 
   // 제출: submit 버튼 → 텍스트 매칭 → Enter 키 순으로 시도

@@ -13,11 +13,16 @@ let nextSid = 1;
 const html = (body) =>
   `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>테스트몰</title></head><body>${body}</body></html>`;
 
-const loginPage = (action) =>
+// 실제 쇼핑몰처럼 로그인 폼보다 앞에 헤더 검색창을 둔다.
+// 아이디 입력란 탐색이 폼 범위로 한정되지 않으면 여기에 아이디가 입력된다.
+const loginPage = (action, idName = 'id') =>
   html(`
+    <form name="searchForm" action="/search">
+      <input type="text" name="keyword" placeholder="검색어를 입력하세요">
+    </form>
     <h1>로그인</h1>
     <form method="POST" action="${action}">
-      <input type="text" name="id" placeholder="아이디">
+      <input type="text" name="${idName}" placeholder="아이디">
       <input type="password" name="passwd" placeholder="비밀번호">
       <input type="submit" value="로그인">
     </form>`);
@@ -44,7 +49,13 @@ function isAuthed(req) {
   return sid && SESSIONS.has(sid);
 }
 
-export function createServer(variant = 'A', { attended = false } = {}) {
+/**
+ * @param variant      출석 버튼 형태: A(텍스트) B(이미지) C(onclick+문구) NONE(버튼 없음)
+ * @param attended     이미 출석한 계정인지
+ * @param loginIdName  아이디 입력란의 name. 기본 후보에 없는 값을 주면
+ *                     폴백 탐색 경로(헤더 검색창 오인)를 검증할 수 있다.
+ */
+export function createServer(variant = 'A', { attended = false, loginIdName = 'id' } = {}) {
   let hasAttended = attended;
 
   return http.createServer(async (req, res) => {
@@ -58,15 +69,18 @@ export function createServer(variant = 'A', { attended = false } = {}) {
     if (url.pathname === '/member/login.php') {
       if (req.method === 'POST') {
         const form = await readBody(req);
-        if (form.get('id') === 'testuser' && form.get('passwd') === 'testpw') {
+        if (form.get(loginIdName) === 'testuser' && form.get('passwd') === 'testpw') {
           const sid = `s${nextSid++}`;
           SESSIONS.add(sid);
           return send(302, '', { Location: '/', 'Set-Cookie': `sid=${sid}; Path=/` });
         }
-        return send(200, html('<p>아이디 또는 비밀번호가 올바르지 않습니다.</p>' ) +
-          loginPage('/member/login.php'));
+        return send(
+          200,
+          html('<p>아이디 또는 비밀번호가 올바르지 않습니다.</p>') +
+            loginPage('/member/login.php', loginIdName)
+        );
       }
-      return send(200, loginPage('/member/login.php'));
+      return send(200, loginPage('/member/login.php', loginIdName));
     }
 
     if (url.pathname === '/') {
@@ -103,7 +117,10 @@ export function createServer(variant = 'A', { attended = false } = {}) {
         </script>`;
 
       let button;
-      if (variant === 'A') {
+      if (variant === 'NONE') {
+        // 출석 버튼이 없는(=셀렉터를 못 찾는) 페이지
+        button = '<p>이벤트 준비중입니다</p><a href="/">홈으로</a>';
+      } else if (variant === 'A') {
         button = `<button onclick="doAttend()">출석체크</button>`;
       } else if (variant === 'B') {
         // 이미지 버튼: 텍스트 노드가 전혀 없고 alt 로만 식별 가능
