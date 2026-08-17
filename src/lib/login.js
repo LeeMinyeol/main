@@ -1,15 +1,28 @@
 import { COMMON } from '../config/sites.js';
 import { firstVisible, findClickableByText, collectText, containsAny } from './dom.js';
 
-/** 현재 페이지가 로그인된 상태로 보이는지 판단 */
+/**
+ * 현재 페이지가 로그인된 상태로 보이는지 판단.
+ *
+ * 판정 순서가 중요하다. "마이페이지" 는 로그인 여부와 무관하게 대부분의 쇼핑몰
+ * 네비게이션에 항상 떠 있으므로 근거로서 약하다. 반면 보이는 비밀번호 입력창은
+ * 미로그인의 강한 근거다. 이 둘의 순서가 뒤바뀌면 로그인 실패 후 재노출된
+ * 로그인 폼을 "로그인 성공" 으로 오판한다.
+ */
 export async function looksLoggedIn(page) {
   try {
     const text = await collectText(page);
-    if (containsAny(text, ['로그아웃', 'LOGOUT', 'Logout', '마이페이지'])) return true;
-    // 로그인 폼(비밀번호 입력창)이 노출되어 있으면 미로그인으로 간주
-    const pw = await firstVisible(page, ['input[type="password"]']);
-    if (pw) return false;
+
+    // 1) 로그아웃 링크 — 로그인 상태의 가장 강한 근거
+    if (containsAny(text, ['로그아웃', 'LOGOUT', 'Logout'])) return true;
+
+    // 2) 보이는 비밀번호 입력창 — 미로그인의 강한 근거
+    if (await firstVisible(page, ['input[type="password"]'])) return false;
+
+    // 3) 약한 근거들
     if (containsAny(text, COMMON.loginRequiredTexts)) return false;
+    if (containsAny(text, ['마이페이지', '주문내역', '적립금'])) return true;
+
     return null; // 판단 불가
   } catch {
     return null;

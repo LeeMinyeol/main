@@ -123,6 +123,27 @@ async function main() {
     check('출석 버튼이 없으면 not_found 로 보고', () =>
       assert.equal(by.nobutton.result, RESULT.NOT_FOUND, JSON.stringify(by.nobutton))
     );
+    check('네비게이션 링크 대신 실제 출석 버튼을 클릭', () => {
+      // 세 변형 모두 상단에 '출석체크' 링크가 있다. 링크를 집으면 페이지만
+      // 다시 열려 출석이 되지 않으므로 success 가 나올 수 없다.
+      for (const k of ['varA', 'varB', 'varC']) {
+        assert.equal(
+          by[k].result,
+          RESULT.SUCCESS,
+          `${k}: 네비게이션 링크를 클릭한 것으로 보임 — ` + JSON.stringify(by[k])
+        );
+      }
+    });
+    check('로그인 실패를 마이페이지 문구로 오판하지 않음', () => {
+      // 로그인 실패 페이지에도 '마이페이지'가 남아 있다. 이것만 보고 로그인 성공으로
+      // 판단하면 실패가 로그인 단계에서 잡히지 않고, 뒤늦게 출석 단계에서
+      // "로그인 요구됨"으로만 보고되어 원인이 자격증명이라는 사실이 가려진다.
+      assert.equal(by.badpw.result, RESULT.LOGIN_REQUIRED, JSON.stringify(by.badpw));
+      assert.ok(
+        by.badpw.message.includes('아이디/비밀번호'),
+        '자격증명 문제로 진단되지 않음: ' + by.badpw.message
+      );
+    });
     check('실패 시 진단 덤프를 자동 생성', () => {
       const f = by.nobutton.debug;
       assert.ok(f && fs.existsSync(f), '진단 파일 없음: ' + f);

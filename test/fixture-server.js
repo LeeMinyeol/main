@@ -74,10 +74,14 @@ export function createServer(variant = 'A', { attended = false, loginIdName = 'i
           SESSIONS.add(sid);
           return send(302, '', { Location: '/', 'Set-Cookie': `sid=${sid}; Path=/` });
         }
+        // 로그인 실패 시 폼을 다시 보여준다. 실제 쇼핑몰처럼 네비게이션에는
+        // '마이페이지'가 그대로 남아 있어, 이것만 보고 로그인 성공으로 오판하면 안 된다.
         return send(
           200,
-          html('<p>아이디 또는 비밀번호가 올바르지 않습니다.</p>') +
-            loginPage('/member/login.php', loginIdName)
+          html(
+            '<nav><a href="/mypage">마이페이지</a></nav>' +
+              '<p>아이디 또는 비밀번호가 올바르지 않습니다.</p>'
+          ) + loginPage('/member/login.php', loginIdName)
         );
       }
       return send(200, loginPage('/member/login.php', loginIdName));
@@ -116,6 +120,12 @@ export function createServer(variant = 'A', { attended = false, loginIdName = 'i
         }
         </script>`;
 
+      // 상단 네비게이션의 '출석체크' 링크. DOM 상 실제 버튼보다 앞에 있으며
+      // 클릭해도 페이지만 다시 열릴 뿐 출석은 되지 않는다.
+      // NONE 변형은 "버튼이 정말 하나도 없는" 경우를 봐야 하므로 제외한다.
+      const nav =
+        variant === 'NONE' ? '' : '<nav><a href="/attend/stamp.html">출석체크</a></nav>';
+
       let button;
       if (variant === 'NONE') {
         // 출석 버튼이 없는(=셀렉터를 못 찾는) 페이지
@@ -129,7 +139,10 @@ export function createServer(variant = 'A', { attended = false, loginIdName = 'i
         button = `<div class="btn" onclick="doAttend()">도장찍기</div><p id="msg"></p>`;
       }
 
-      return send(200, html(`<h1>출석체크</h1><a href="/logout">로그아웃</a>${button}${script}`));
+      return send(
+        200,
+        html(`${nav}<h1>출석체크</h1><a href="/logout">로그아웃</a>${button}${script}`)
+      );
     }
 
     if (url.pathname === '/btn.png') {

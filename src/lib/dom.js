@@ -39,52 +39,91 @@ export async function firstPresent(page, selectors) {
 /**
  * 텍스트/alt/value/onclick 중 하나라도 매칭되는 클릭 가능한 요소를 찾는다.
  * texts 는 우선순위 순서대로 평가된다.
+ *
+ * 같은 문구가 여러 곳에 있으면 DOM 순서가 아니라 "동작처럼 보이는 정도"로 고른다.
+ * 쇼핑몰은 상단 네비게이션에 '출석체크' 링크를 두는 경우가 많은데, DOM 상
+ * 실제 버튼보다 앞에 있어 그대로 집으면 페이지만 다시 열고 출석은 되지 않는다.
+ * onclick 이 있거나 button/input 이거나 javascript:/# 링크인 요소를 우선한다.
  */
-export async function findClickableByText(page, texts) {
-  for (const text of texts) {
-    const handle = await page
-      .evaluateHandle(
-        ([sel, needle]) => {
-          const norm = (s) => (s || '').replace(/\s+/g, '');
-          const target = norm(needle);
-          const nodes = Array.from(document.querySelectorAll(sel));
-          for (const el of nodes) {
-            const rect = el.getBoundingClientRect();
-            const style = getComputedStyle(el);
-            const visible =
-              rect.width > 0 &&
-              rect.height > 0 &&
-              style.visibility !== 'hidden' &&
-              style.display !== 'none';
-            if (!visible) continue;
-            const hay = norm(
-              [
-                el.innerText,
-                el.getAttribute('value'),
-                el.getAttribute('alt'),
-                el.getAttribute('title'),
-                el.getAttribute('aria-label'),
-                // 이미지 버튼: 자식 img 의 alt/src
-                ...Array.from(el.querySelectorAll('img')).map(
-                  (i) => `${i.alt} ${i.getAttribute('src')}`
-                ),
-              ].join(' ')
-            );
-            if (hay.includes(target)) return el;
-          }
-          return null;
-        },
-        [CLICKABLE, text]
-      )
-      .catch(() => null);
+const PICK_ATTR = 'data-attend-pick';
 
-    if (handle) {
-      const el = handle.asElement();
-      if (el) return { element: el, matched: text };
-      await handle.dispose().catch(() => {});
-    }
-  }
-  return null;
+export async function findClickableByText(page, texts) {
+  const matched = await page
+    .evaluate(
+      ([sel, needles, pickAttr]) => {
+        const norm = (s) => (s || '').replace(/\s+/g, '');
+
+        // 요소가 "진짜 동작 버튼"에 가까운 정도
+        const actionScore = (el) => {
+          const tag = el.tagName.toLowerCase();
+          let s = 0;
+          if (el.hasAttribute('onclick')) s += 10;
+          if (tag === 'button' || tag === 'input') s += 8;
+          if (tag === 'a') {
+            const href = (el.getAttribute('href') || '').trim();
+            // javascript:, #, 빈 href = 페이지 이동이 아닌 동작
+            if (!href || href === '#' || href.toLowerCase().startsWith('javascript:')) s += 6;
+            else s -= 5; // 다른 페이지로 가는 평범한 링크 = 네비게이션일 가능성
+          }
+          if (/btn|button|stamp|attend|출석/i.test(el.className || '')) s += 2;
+          return s;
+        };
+
+        let best = null;
+        let bestScore = -Infinity;
+        let bestText = null;
+
+        for (const el of document.querySelectorAll(sel)) {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          const visible =
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== 'hidden' &&
+            style.display !== 'none';
+          if (!visible) continue;
+
+          const hay = norm(
+            [
+              el.innerText,
+              el.getAttribute('value'),
+              el.getAttribute('alt'),
+              el.getAttribute('title'),
+              el.getAttribute('aria-label'),
+              // 이미지 버튼: 자식 img 의 alt/src
+              ...Array.from(el.querySelectorAll('img')).map(
+                (i) => `${i.alt} ${i.getAttribute('src')}`
+              ),
+            ].join(' ')
+          );
+
+          const idx = needles.findIndex((n) => hay.includes(norm(n)));
+          if (idx < 0) continue;
+
+          // 동작처럼 보이는지를 우선하고(×10), 같은 조건이면 앞선 문구를 선호한다.
+          // 네비게이션 링크가 더 앞선 문구에 걸려도 실제 버튼을 이기지 못한다.
+          const s = actionScore(el) * 10 + (needles.length - idx);
+          if (s > bestScore) {
+            bestScore = s;
+            best = el;
+            bestText = needles[idx];
+          }
+        }
+
+        document.querySelectorAll(`[${pickAttr}]`).forEach((e) => e.removeAttribute(pickAttr));
+        if (!best) return null;
+        best.setAttribute(pickAttr, '1');
+        return bestText;
+      },
+      [CLICKABLE, texts, PICK_ATTR]
+    )
+    .catch(() => null);
+
+  if (!matched) return null;
+  const element = await page.$(`[${PICK_ATTR}]`).catch(() => null);
+  if (!element) return null;
+  await element.evaluate((el, a) => el.removeAttribute(a), PICK_ATTR).catch(() => {});
+  return { element, matched };
 }
 
 /** 페이지 전체 텍스트(프레임 포함)를 모아서 반환 */
