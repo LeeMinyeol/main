@@ -12,6 +12,8 @@
 /** 대부분의 한국 쇼핑몰(메이크샵/카페24/자체 PHP)에서 통용되는 공통 후보들 */
 export const COMMON = {
   idSelectors: [
+    // 카페24 표준 — 오네임/딩동/도매돌에서 실제 확인됨 (member_id)
+    'input[name="member_id"]',
     'input[name="id"]',
     'input[name="m_id"]',
     'input[name="user_id"]',
@@ -26,6 +28,8 @@ export const COMMON = {
     'input[autocomplete="username"]',
   ],
   pwSelectors: [
+    // 카페24 표준 — 딩동 로그인 폼에서 실제 확인됨 (member_passwd)
+    'input[name="member_passwd"]',
     'input[type="password"]',
     'input[name="passwd"]',
     'input[name="password"]',
@@ -96,14 +100,16 @@ export const SITES = [
     key: 'showdang',
     name: '쇼당 (showdang)',
     attendUrl: 'https://m.showdang.co.kr/event/attend_stamp.php',
-    // 확인 필요: PHP 기반 몰이므로 .php 로그인 페이지가 유력
     loginUrlCandidates: [
       'https://m.showdang.co.kr/member/login.php',
       'https://m.showdang.co.kr/member/login.html',
       'https://m.showdang.co.kr/shop/member.html?type=login',
       'https://showdang.co.kr/member/login.php',
     ],
-    notes: '자체 PHP 몰로 추정. attend_stamp.php 가 출석 페이지.',
+    // 확인됨(2026-09): HTTP 200, 리다이렉트 없음. 자체 PHP 몰.
+    // 출석 폼 #formStamp -> ../event/attendance_ps.php (hidden: sno, checkSno, mode 등)
+    // 헤더 검색폼 #frmSearchTop 에 input[name=keyword] 존재 -> 폼 범위 한정 필수
+    notes: '자체 PHP 몰. 출석 폼 #formStamp. 로그인 URL 미확인.',
   },
   {
     key: 'oname',
@@ -115,7 +121,8 @@ export const SITES = [
       'https://m.oname.kr/member/login.php',
       'https://oname.kr/member/login.html',
     ],
-    notes: '/attend/stamp2.html — 메이크샵 계열 출석 플러그인으로 추정.',
+    // 확인됨(2026-09): HTTP 200. 카페24(.xans-* 클래스). 검색폼 input[name=keyword] 존재.
+    notes: '카페24. 로그인 필드는 member_id / member_passwd 예상.',
   },
   {
     key: 'bananamall',
@@ -128,7 +135,9 @@ export const SITES = [
       'https://m.bananamall.co.kr/member/login.html',
       'https://www.bananamall.co.kr/member/login.php',
     ],
-    notes: 'islog=Y 파라미터는 로그인 상태 플래그로 추정. 자체 PHP 몰.',
+    // 확인됨(2026-09): HTTP 522 (Cloudflare 오리진 응답 없음).
+    // 일시적 장애일 수도, 데이터센터 IP 차단일 수도 있음. 첫 실행에서 확인 필요.
+    notes: '자체 PHP 몰. 진단 시 Cloudflare 522 — 접속 자체가 불안정할 수 있음.',
   },
   {
     key: 'dingdong',
@@ -140,7 +149,14 @@ export const SITES = [
       'https://m.dingdong.co.kr/member/login.php',
       'https://dingdong.co.kr/member/login.html',
     ],
-    notes: '/attend/stamp.html — oname/domaedoll 과 동일 플러그인으로 추정.',
+    // 확인됨(2026-09): 카페24. 비로그인 시 /intro/adult_im.html?returnUrl=... 로
+    // 리다이렉트되며 그 페이지에 로그인 폼이 있다.
+    //   form action=/exec/front/Member/login/
+    //   input#member_id[type=text], input#member_passwd[type=password]
+    //   버튼 onclick=MemberAction.login('member_form_...')
+    // 네이버 SNS 로그인도 지원: MemberAction.snsLogin('naver', ...)
+    // 성인인증(kcp)이 걸려 있어 계정이 미인증이면 로그인만으로 부족할 수 있음.
+    notes: '카페24. member_id/member_passwd 확인됨. 성인인증 페이지 경유.',
   },
   {
     key: 'domaedoll',
@@ -152,7 +168,9 @@ export const SITES = [
       'https://domaedoll.com/member/login.php',
       'https://m.domaedoll.com/member/login.html',
     ],
-    notes: '모바일 전용 도메인이 따로 없어 domaedoll.com 사용.',
+    // 확인됨(2026-09): HTTP 200. 카페24. 출석 버튼이 비로그인 상태에서는
+    // onclick="alert('로그인 후 이용 가능합니다.')" 로 동작 -> loginRequiredTexts 로 감지됨.
+    notes: '카페24. 모바일 전용 도메인 없음. 비로그인 시 로그인 안내 alert.',
   },
 ];
 
