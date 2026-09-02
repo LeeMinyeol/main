@@ -9,7 +9,7 @@ import { runAll } from '../src/lib/runner.js';
 import { RESULT } from '../src/lib/attend.js';
 import { classify } from '../src/lib/attend.js';
 
-const PORTS = { A: 8181, B: 8182, C: 8183, D: 8184, E: 8185, F: 8186, G: 8187 };
+const PORTS = { A: 8181, B: 8182, C: 8183, D: 8184, E: 8185, F: 8186, G: 8187, H: 8188 };
 
 function siteFor(key, port, creds = { id: 'testuser', pw: 'testpw' }) {
   const base = `http://127.0.0.1:${port}`;
@@ -78,6 +78,9 @@ async function main() {
   // 헤더 검색창을 아이디 칸으로 오인하면 로그인이 실패한다.
   await start('A', PORTS.F, { loginIdName: 'mb_id_login' });
   await start('NONE', PORTS.G); // 출석 버튼 없음 → 진단 덤프 검증
+  // 카페24 표준 필드명. 2026-09 진단에서 딩동 로그인 폼이 이 이름을 쓰는 것을 확인.
+  // 5개 중 3개가 카페24이므로 실제로 가장 중요한 경로다.
+  await start('A', PORTS.H, { loginIdName: 'member_id' });
 
   try {
     console.log('\n[2] 브라우저 통합 테스트 (로컬 픽스처)');
@@ -89,6 +92,7 @@ async function main() {
       siteFor('badpw', PORTS.E, { id: 'testuser', pw: 'wrong' }),
       siteFor('oddid', PORTS.F),
       siteFor('nobutton', PORTS.G),
+      siteFor('cafe24', PORTS.H),
     ];
 
     const results = await runAll(sites, { retries: 0 });
@@ -144,6 +148,13 @@ async function main() {
         '자격증명 문제로 진단되지 않음: ' + by.badpw.message
       );
     });
+    check('카페24 member_id 로그인 폼 처리', () =>
+      assert.equal(
+        by.cafe24.result,
+        RESULT.SUCCESS,
+        '실제 확인된 카페24 필드명에서 실패: ' + JSON.stringify(by.cafe24)
+      )
+    );
     check('실패 시 진단 덤프를 자동 생성', () => {
       const f = by.nobutton.debug;
       assert.ok(f && fs.existsSync(f), '진단 파일 없음: ' + f);
