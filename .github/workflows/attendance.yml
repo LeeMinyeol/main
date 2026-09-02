@@ -1,0 +1,92 @@
+name: 출석체크
+
+on:
+  schedule:
+    # KST 00:10 (UTC 15:10) — 자정 리셋 직후 1차 실행
+    - cron: '10 15 * * *'
+    # KST 12:00 (UTC 03:00) — 1차가 실패했을 경우를 위한 2차 실행
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      site:
+        description: '실행할 사이트'
+        required: false
+        type: choice
+        default: all
+        options: [all, showdang, oname, bananamall, dingdong, domaedoll]
+      mode:
+        description: '실행 모드'
+        required: false
+        type: choice
+        default: run
+        options: [run, discover]
+
+concurrency:
+  group: attendance
+  cancel-in-progress: false
+
+jobs:
+  attend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Playwright Chromium 설치
+        run: npx playwright install --with-deps chromium
+
+      - name: 출석체크 실행
+        env:
+          SHOWDANG_ID: ${{ secrets.SHOWDANG_ID }}
+          SHOWDANG_PW: ${{ secrets.SHOWDANG_PW }}
+          ONAME_ID: ${{ secrets.ONAME_ID }}
+          ONAME_PW: ${{ secrets.ONAME_PW }}
+          BANANAMALL_ID: ${{ secrets.BANANAMALL_ID }}
+          BANANAMALL_PW: ${{ secrets.BANANAMALL_PW }}
+          DINGDONG_ID: ${{ secrets.DINGDONG_ID }}
+          DINGDONG_PW: ${{ secrets.DINGDONG_PW }}
+          DOMAEDOLL_ID: ${{ secrets.DOMAEDOLL_ID }}
+          DOMAEDOLL_PW: ${{ secrets.DOMAEDOLL_PW }}
+          # 확정된 셀렉터/URL 오버라이드 (선택)
+          SHOWDANG_LOGIN_URL: ${{ vars.SHOWDANG_LOGIN_URL }}
+          ONAME_LOGIN_URL: ${{ vars.ONAME_LOGIN_URL }}
+          BANANAMALL_LOGIN_URL: ${{ vars.BANANAMALL_LOGIN_URL }}
+          DINGDONG_LOGIN_URL: ${{ vars.DINGDONG_LOGIN_URL }}
+          DOMAEDOLL_LOGIN_URL: ${{ vars.DOMAEDOLL_LOGIN_URL }}
+          SHOWDANG_ID_SELECTOR: ${{ vars.SHOWDANG_ID_SELECTOR }}
+          ONAME_ID_SELECTOR: ${{ vars.ONAME_ID_SELECTOR }}
+          BANANAMALL_ID_SELECTOR: ${{ vars.BANANAMALL_ID_SELECTOR }}
+          DINGDONG_ID_SELECTOR: ${{ vars.DINGDONG_ID_SELECTOR }}
+          DOMAEDOLL_ID_SELECTOR: ${{ vars.DOMAEDOLL_ID_SELECTOR }}
+          SHOWDANG_ATTEND_SELECTOR: ${{ vars.SHOWDANG_ATTEND_SELECTOR }}
+          ONAME_ATTEND_SELECTOR: ${{ vars.ONAME_ATTEND_SELECTOR }}
+          BANANAMALL_ATTEND_SELECTOR: ${{ vars.BANANAMALL_ATTEND_SELECTOR }}
+          DINGDONG_ATTEND_SELECTOR: ${{ vars.DINGDONG_ATTEND_SELECTOR }}
+          DOMAEDOLL_ATTEND_SELECTOR: ${{ vars.DOMAEDOLL_ATTEND_SELECTOR }}
+          # 결과 알림 (선택): Discord / Slack 웹훅 URL
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          MODE="${{ inputs.mode || 'run' }}"
+          SITE="${{ inputs.site || 'all' }}"
+          if [ "$SITE" = "all" ]; then
+            node src/index.js "$MODE"
+          else
+            node src/index.js "$MODE" --site "$SITE"
+          fi
+
+      - name: 스크린샷 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attendance-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: ignore

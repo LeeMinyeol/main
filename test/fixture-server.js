@@ -1,0 +1,154 @@
+/**
+ * 실제 사이트에 접근하지 않고 로직을 검증하기 위한 로컬 테스트 서버.
+ * 한국 쇼핑몰에서 흔한 3가지 패턴을 재현한다.
+ *   A: 텍스트 버튼 + alert 성공
+ *   B: 이미지 버튼(alt) + alert "이미 출석"
+ *   C: onclick 인라인 JS + 페이지 내 문구로 성공 표시
+ */
+import http from 'node:http';
+
+const SESSIONS = new Set();
+let nextSid = 1;
+
+const html = (body) =>
+  `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>테스트몰</title></head><body>${body}</body></html>`;
+
+// 실제 쇼핑몰처럼 로그인 폼보다 앞에 헤더 검색창을 둔다.
+// 아이디 입력란 탐색이 폼 범위로 한정되지 않으면 여기에 아이디가 입력된다.
+const loginPage = (action, idName = 'id') =>
+  html(`
+    <form name="searchForm" action="/search">
+      <input type="text" name="keyword" placeholder="검색어를 입력하세요">
+    </form>
+    <h1>로그인</h1>
+    <form method="POST" action="${action}">
+      <input type="text" name="${idName}" placeholder="아이디">
+      <input type="password" name="passwd" placeholder="비밀번호">
+      <input type="submit" value="로그인">
+    </form>`);
+
+function parseCookies(req) {
+  const out = {};
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const [k, v] = part.split('=').map((s) => s?.trim());
+    if (k) out[k] = v;
+  }
+  return out;
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', () => resolve(new URLSearchParams(data)));
+  });
+}
+
+function isAuthed(req) {
+  const sid = parseCookies(req).sid;
+  return sid && SESSIONS.has(sid);
+}
+
+/**
+ * @param variant      출석 버튼 형태: A(텍스트) B(이미지) C(onclick+문구) NONE(버튼 없음)
+ * @param attended     이미 출석한 계정인지
+ * @param loginIdName  아이디 입력란의 name. 기본 후보에 없는 값을 주면
+ *                     폴백 탐색 경로(헤더 검색창 오인)를 검증할 수 있다.
+ */
+export function createServer(variant = 'A', { attended = false, loginIdName = 'id' } = {}) {
+  let hasAttended = attended;
+
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    const send = (code, body, headers = {}) => {
+      res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', ...headers });
+      res.end(body);
+    };
+
+    // 로그인 페이지 (후보 탐색 검증을 위해 일부러 /member/login.php 만 유효)
+    if (url.pathname === '/member/login.php') {
+      if (req.method === 'POST') {
+        const form = await readBody(req);
+        if (form.get(loginIdName) === 'testuser' && form.get('passwd') === 'testpw') {
+          const sid = `s${nextSid++}`;
+          SESSIONS.add(sid);
+          return send(302, '', { Location: '/', 'Set-Cookie': `sid=${sid}; Path=/` });
+        }
+        // 로그인 실패 시 폼을 다시 보여준다. 실제 쇼핑몰처럼 네비게이션에는
+        // '마이페이지'가 그대로 남아 있어, 이것만 보고 로그인 성공으로 오판하면 안 된다.
+        return send(
+          200,
+          html(
+            '<nav><a href="/mypage">마이페이지</a></nav>' +
+              '<p>아이디 또는 비밀번호가 올바르지 않습니다.</p>'
+          ) + loginPage('/member/login.php', loginIdName)
+        );
+      }
+      return send(200, loginPage('/member/login.php', loginIdName));
+    }
+
+    if (url.pathname === '/') {
+      return send(200, html(isAuthed(req) ? '<a href="/logout">로그아웃</a><p>마이페이지</p>' : '<a href="/member/login.php">로그인</a>'));
+    }
+
+    // 출석 API
+    if (url.pathname === '/api/attend') {
+      if (!isAuthed(req)) return send(200, 'LOGIN');
+      if (hasAttended) return send(200, 'ALREADY');
+      hasAttended = true;
+      return send(200, 'OK');
+    }
+
+    // 출석 페이지
+    if (url.pathname === '/attend/stamp.html') {
+      if (!isAuthed(req)) {
+        return send(200, html('<script>alert("로그인이 필요합니다.");</script><p>로그인이 필요합니다</p>'));
+      }
+
+      const script = `
+        <script>
+        async function doAttend() {
+          const r = await fetch('/api/attend');
+          const t = await r.text();
+          if (t === 'OK') { ${
+            variant === 'C'
+              ? `document.getElementById('msg').innerText = '출석체크가 완료되었습니다. 100포인트 적립되었습니다.';`
+              : `alert('출석체크가 완료되었습니다. 100포인트가 적립되었습니다.');`
+          } }
+          else if (t === 'ALREADY') { alert('오늘은 이미 출석체크를 하셨습니다.'); }
+          else { alert('로그인이 필요합니다.'); }
+        }
+        </script>`;
+
+      // 상단 네비게이션의 '출석체크' 링크. DOM 상 실제 버튼보다 앞에 있으며
+      // 클릭해도 페이지만 다시 열릴 뿐 출석은 되지 않는다.
+      // NONE 변형은 "버튼이 정말 하나도 없는" 경우를 봐야 하므로 제외한다.
+      const nav =
+        variant === 'NONE' ? '' : '<nav><a href="/attend/stamp.html">출석체크</a></nav>';
+
+      let button;
+      if (variant === 'NONE') {
+        // 출석 버튼이 없는(=셀렉터를 못 찾는) 페이지
+        button = '<p>이벤트 준비중입니다</p><a href="/">홈으로</a>';
+      } else if (variant === 'A') {
+        button = `<button onclick="doAttend()">출석체크</button>`;
+      } else if (variant === 'B') {
+        // 이미지 버튼: 텍스트 노드가 전혀 없고 alt 로만 식별 가능
+        button = `<a href="javascript:void(0)" onclick="doAttend()"><img src="/btn.png" alt="출석하기" width="200" height="60"></a>`;
+      } else {
+        button = `<div class="btn" onclick="doAttend()">도장찍기</div><p id="msg"></p>`;
+      }
+
+      return send(
+        200,
+        html(`${nav}<h1>출석체크</h1><a href="/logout">로그아웃</a>${button}${script}`)
+      );
+    }
+
+    if (url.pathname === '/btn.png') {
+      return send(200, '', { 'Content-Type': 'image/png' });
+    }
+
+    send(404, html('<p>Not Found</p>'));
+  });
+}

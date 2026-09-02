@@ -1,0 +1,20 @@
+{
+  "name": "attendance-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "5개 쇼핑몰 출석체크 자동화",
+  "scripts": {
+    "attend": "node src/index.js run",
+    "attend:one": "node src/index.js run --site",
+    "discover": "node src/index.js discover",
+    "list": "node src/index.js list",
+    "test": "node test/run-tests.js"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

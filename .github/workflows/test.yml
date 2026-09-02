@@ -1,0 +1,55 @@
+name: 테스트
+
+on:
+  # PR 이 열린 브랜치는 pull_request 로만 실행해 중복 실행을 피한다
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+
+  # GitHub Actions 러너에서 대상 사이트에 실제로 닿는지, 그리고 비로그인 접속 시
+  # 어디로 리다이렉트되는지(=로그인 페이지 주소 단서) 확인한다.
+  # 개발 환경에서는 이 도메인들이 차단되어 확인이 불가능했다.
+  # 진단용이므로 실패해도 CI 를 막지 않는다.
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: 대상 사이트 접속 확인
+        run: |
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
+          for u in \
+            "https://m.showdang.co.kr/event/attend_stamp.php" \
+            "https://m.oname.kr/attend/stamp2.html" \
+            "https://m.bananamall.co.kr/etc/attendance.php?islog=Y" \
+            "https://m.dingdong.co.kr/attend/stamp.html" \
+            "https://domaedoll.com/attend/stamp.html" ; do
+            echo "=============================================="
+            echo "요청: $u"
+            curl -sS -L --max-time 25 -A "$UA" \
+              -o /tmp/page.html \
+              -w '  HTTP=%{http_code}  최종URL=%{url_effective}  크기=%{size_download}\n' \
+              "$u" || { echo "  접속 실패"; continue; }
+            echo "--- form action ---"
+            grep -oiE '<form[^>]*action="[^"]*"' /tmp/page.html | head -5 || true
+            echo "--- input name (로그인 폼 단서) ---"
+            grep -oiE '<input[^>]*name="[^"]*"[^>]*type="[^"]*"|<input[^>]*type="[^"]*"[^>]*name="[^"]*"' /tmp/page.html | head -12 || true
+            echo "--- 출석 관련 문구/버튼 ---"
+            grep -oiE '(출석[^<"]{0,12})' /tmp/page.html | sort -u | head -10 || true
+            grep -oiE 'onclick="[^"]{0,60}"' /tmp/page.html | head -8 || true
+          done
