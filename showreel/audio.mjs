@@ -1,5 +1,6 @@
-// 사운드트랙: 외부 음원 없이 수학으로 직접 합성 (120BPM, 장면 전환 타이밍에 맞춤)
-// 킥·클랩·하이햇·베이스·패드·라이저·임팩트·타이핑 효과음을 만들어 WAV 파일로 저장
+// 사운드트랙: 외부 음원 없이 수학으로 직접 합성 (120BPM = 한 박자 0.5초, 장면 전환은 모두 박자 위)
+// 킥·클랩·하이햇·베이스·패드·라이저·임팩트·효과음을 만들어 WAV 파일로 저장
+// 코드 진행: Am → F → C → Dm(드론) → G → Am → F → E(긴장) → … → Am9 (마지막 착지에서 해결)
 
 import { writeFileSync } from 'node:fs';
 
@@ -96,98 +97,171 @@ export function makeSoundtrack(path) {
     return 2 * (ph - Math.floor(ph + 0.5));
   }
 
-  // --- 장면 1: 점 튀어나옴, 충격파, 타이핑, 라이저 ---
-  blip(0.0, 880, 0.25, 0.12);
-  blip(0.05, 1760, 0.12, 0.08);
-  kick(0.5, 0.9);
-  impact(0.5, 0.35);
-  kick(1.0, 0.6);
-  for (let i = 0; i < 13; i++) blip(1.0 + i * 0.031, 2400 + (i % 3) * 300, 0.07, 0.02, (i % 2) * 0.4 - 0.2);
-  sweep(1.3, 2.0, 300, 7000, 0.35);
-
-  // --- 비트 구간 (2.0 ~ 12.0초) ---
-  const beat = 0.5;
-  for (let t = 2.0; t < 12.0 - 1e-6; t += beat) kick(t, 1);
-  for (let t = 2.5; t < 12.0; t += 1.0) clap(t, 0.55);
-  for (let t = 4.5; t < 12.0; t += 0.25) if (Math.round(t * 4) % 2 === 1) hat(t, 0.2, 0.35);
-  for (let t = 11.0; t < 12.0; t += 0.125) hat(t, 0.08 + (t - 11) * 0.12, -0.35, 0.03);
-  impact(2.0, 1);
-
-  // 장면 전환 휙 소리 + 가벼운 임팩트
-  [4.5, 7.0, 9.5].forEach((c) => {
-    sweep(c - 0.45, c + 0.05, 400, 9000, 0.3);
-    impact(c, 0.35);
-  });
-
-  // 베이스 (코드 진행: Am - F - C - G - Am, 한 마디 = 2초)
-  const roots = [55, 43.65, 65.41, 49.0, 55];
-  {
-    let ph = 0;
+  // ---------- 추가 악기 ----------
+  // 우드블록 딸깍 (타일 회전)
+  function tick(t, f = 1200, g = 0.18, pan = 0) {
+    for (let k = 0; k < SR * 0.06; k++) {
+      const tau = k / SR;
+      add(idx(t) + k, g * (Math.sin(TAU * f * tau) * 0.8 + noise() * 0.3 * Math.exp(-tau * 400)) * Math.exp(-tau * 70), pan);
+    }
+  }
+  // 루빅스 큐브 철컥
+  function clack(t, g = 0.4) {
     let lp = 0;
-    for (let i = idx(2.0); i < idx(12.0); i++) {
-      const t = i / SR;
-      const bar = Math.min(4, Math.floor((t - 2.0) / 2));
-      const eighth = Math.floor((t - 2.0) / 0.25);
-      const f = roots[bar] * (eighth % 4 === 3 ? 2 : 1);
-      ph += f / SR;
-      const since = (t - 2.0) % 0.25;
-      const x = 0.6 * saw(ph) + 0.6 * Math.sin(TAU * ph);
-      lp += (1 - Math.exp((-TAU * (180 + 900 * Math.exp(-since * 18))) / SR)) * (x - lp);
-      const duck = 1 - 0.85 * Math.exp(-((t - 2.0) % 0.5) * 11);
-      add(i, 0.32 * lp * duck * Math.min(1, since * 400));
+    for (let k = 0; k < SR * 0.12; k++) {
+      const tau = k / SR;
+      lp += 0.3 * (noise() - lp);
+      add(idx(t) + k, g * (lp * Math.exp(-tau * 45) + 0.6 * Math.sin(TAU * 140 * tau) * Math.exp(-tau * 30)));
+    }
+  }
+  // 음정이 미끄러지는 사인 (f0 → f1)
+  function glide(t0, t1, f0, f1, g, pan = 0) {
+    let ph = 0;
+    const n0 = idx(t0);
+    const len = idx(t1) - n0;
+    for (let k = 0; k < len; k++) {
+      const p = k / len;
+      ph += (TAU * f0 * Math.pow(f1 / f0, p)) / SR;
+      add(n0 + k, g * Math.sin(ph) * Math.min(1, k / (SR * 0.01)) * (1 - p) ** 0.7, pan);
     }
   }
 
-  // 패드 화음 (디튠된 톱니파 3겹)
-  const chords = [
-    [220, 261.63, 329.63],
-    [174.61, 220, 261.63],
-    [196, 261.63, 329.63],
-    [196, 246.94, 293.66],
-    [220, 261.63, 329.63],
-    [220, 261.63, 329.63, 493.88],
+  // ---------- 코드 진행 / 킥 위치 ----------
+  const A = [220, 261.63, 329.63], F = [174.61, 220, 261.63], Cmaj = [196, 261.63, 329.63];
+  const Dm = [146.83, 174.61, 220], G = [196, 246.94, 293.66], E = [164.81, 207.65, 246.94];
+  const PROG = [
+    { t0: 1.0, t1: 3.0, notes: A, root: 55 },
+    { t0: 3.0, t1: 5.0, notes: F, root: 43.65 },
+    { t0: 5.0, t1: 7.0, notes: Cmaj, root: 65.41 },
+    { t0: 7.0, t1: 8.5, notes: Dm, root: 36.71, drone: true },
+    { t0: 8.5, t1: 10.0, notes: G, root: 49 },
+    { t0: 10.0, t1: 11.0, notes: A, root: 55 },
+    { t0: 11.0, t1: 12.0, notes: F, root: 43.65 },
+    { t0: 12.0, t1: 12.5, notes: E, root: 41.2 },
   ];
+  const kicks = [0.0, 0.5];
+  for (let t = 1.0; t < 7.0 - 1e-6; t += 0.5) kicks.push(t);
+  kicks.push(7.0, 7.5, 8.0);
+  for (let t = 8.5; t < 12.5 - 1e-6; t += 0.5) kicks.push(t);
+  kicks.push(14.0);
+  const lastKick = (t) => {
+    let k = -1;
+    for (const x of kicks) if (x <= t) k = x;
+    return k;
+  };
+
+  // ---------- 1. HOOK (0 ~ 1초) ----------
+  impact(0.0, 1.3);
+  hat(0.25, 0.3, 0.4, 0.08);
+  blip(0.25, 1760, 0.1, 0.05, -0.3);
+  impact(0.5, 0.9);
+  sweep(0.52, 1.0, 180, 11000, 0.5, (p) => p * p * p); // O 속으로 크래시 줌
+  kicks.forEach((t) => kick(t, t >= 7.0 && t < 8.5 ? 0.55 : 1));
+  impact(1.0, 0.6);
+
+  // ---------- 2. TYPOGRAPHY (1 ~ 4초) ----------
+  [[1.0, 440], [1.25, 523.25], [1.5, 659.25], [1.75, 880]].forEach(([t, f]) => blip(t, f, 0.16, 0.12)); // I MAKE PIXELS DANCE
+  for (let i = 0; i < 4; i++) tick(2.0 + i * 0.25, 2200 - i * 150, 0.12, i % 2 ? 0.4 : -0.4); // 글리프 교체
+  [3.0, 3.5].forEach((t) => sweep(t - 0.02, t + 0.2, 600, 5000, 0.18, (p) => Math.sin(p * Math.PI))); // 마퀴 휙
+  glide(3.72, 4.0, 1600, 200, 0.12); // 납작하게 눌림
+
+  // ---------- 3. SHAPE PLAY (4 ~ 7초) ----------
+  for (let i = 0; i < 4; i++) tick(5.0 + i * 0.25, 900 + (i % 2) * 300, 0.22, i % 2 ? 0.5 : -0.5); // 타일 회전
+  sweep(6.0, 7.0, 200, 8000, 0.4, (p) => p * p); // 가운데로 빨려 들어감
+  impact(7.0, 0.7);
+
+  // ---------- 4. CAMERA (7 ~ 10초) ----------
+  glide(7.0, 8.5, 220, 180, 0.07, -0.5); // 버티고: 두 음이 벌어지며 불안하게
+  glide(7.0, 8.5, 220, 275, 0.07, 0.5);
+  sweep(8.05, 8.5, 300, 9000, 0.35, (p) => p * p * p);
+  sweep(8.44, 8.62, 800, 12000, 0.45, (p) => Math.sin(p * Math.PI)); // 휩 팬
+  impact(8.5, 0.9);
+  sweep(8.6, 8.75, 3000, 400, 0.25, (p) => Math.sin(p * Math.PI)); // 크래시 줌
+  clack(9.0);
+  clack(9.5);
+  sweep(9.7, 10.0, 200, 10000, 0.35, (p) => p * p); // 폭발
+
+  // ---------- 5. COLOUR (10 ~ 12.5초) ----------
+  impact(10.0, 1.0);
+  const penta = [880, 1046.5, 1174.66, 1318.51, 1567.98, 1760];
+  for (let i = 0; i < 16; i++) blip(10.0 + i * 0.125, penta[(i * 2) % 6] * (i >= 8 ? 1.5 : 1), 0.06, 0.1, i % 2 ? 0.5 : -0.5);
+  for (let t = 10.0; t < 12.0; t += 0.125) hat(t, 0.06, -0.3, 0.03);
+  for (let i = 0; i < 12; i++) clap(12.0 + i * (0.5 / 12), 0.12 + i * 0.03); // 스네어 롤
+  sweep(11.4, 12.5, 150, 10000, 0.45, (p) => p * p * p);
+
+  // ---------- 공통 리듬 (클랩·하이햇) ----------
+  for (let t = 1.5; t < 7.0; t += 1.0) clap(t, 0.5);
+  for (let t = 9.5; t < 12.0; t += 1.0) clap(t, 0.5);
+  for (let t = 1.25; t < 12.0; t += 0.5) if (t < 7.0 || t > 8.5) hat(t, 0.18, 0.35);
+
+  // ---------- 베이스 & 패드 (킥에 맞춰 사이드체인) ----------
   {
-    const phs = new Float64Array(12);
-    let lpL = 0;
-    let lpR = 0;
-    for (let i = idx(2.0); i < N; i++) {
+    let ph = 0, lp = 0;
+    const phs = new Float64Array(8);
+    let pl = 0, pr = 0;
+    for (let i = idx(1.0); i < idx(12.5); i++) {
       const t = i / SR;
-      const ci = Math.min(5, Math.floor((t - 2.0) / 2));
-      let l = 0;
-      let r = 0;
-      chords[ci].forEach((f, j) => {
-        for (let d = 0; d < 2; d++) {
-          const k = j * 2 + d;
-          phs[k] += (f * (d ? 1.006 : 0.994)) / SR;
-          const v = saw(phs[k]);
-          if (d) r += v;
-          else l += v;
-        }
+      const sec = PROG.find((s) => t >= s.t0 && t < s.t1);
+      if (!sec) continue;
+      const since = (t - sec.t0) % 0.25;
+      const duck = 1 - 0.8 * Math.exp(-(t - lastKick(t)) * 10);
+      // 베이스: 8분음표 플럭 (버티고 구간은 길게 깔리는 드론)
+      const e8 = Math.floor((t - sec.t0) / 0.25);
+      const f = sec.root * (sec.drone ? 1 : e8 % 4 === 3 ? 2 : 1);
+      ph += f / SR;
+      const x = 0.6 * saw(ph) + 0.6 * Math.sin(TAU * ph);
+      const cut = sec.drone ? 120 + 500 * ((t - sec.t0) / 1.5) ** 2 : 180 + 900 * Math.exp(-since * 18);
+      lp += (1 - Math.exp((-TAU * cut) / SR)) * (x - lp);
+      const env = sec.drone ? 0.9 : Math.min(1, since * 400);
+      add(i, 0.3 * lp * duck * env);
+      // 패드
+      let l = 0, r = 0;
+      sec.notes.forEach((nf, j) => {
+        phs[j * 2] += (nf * 0.994) / SR;
+        phs[j * 2 + 1] += (nf * 1.006) / SR;
+        l += saw(phs[j * 2]);
+        r += saw(phs[j * 2 + 1]);
       });
-      const a = 1 - Math.exp((-TAU * (t > 12 ? 1600 : 900)) / SR);
-      lpL += a * (l - lpL);
-      lpR += a * (r - lpR);
-      const duck = t < 12 ? 1 - 0.6 * Math.exp(-((t - 2.0) % 0.5) * 9) : 1;
-      const env = Math.min(1, (t - 2.0) / 0.6) * (t > 14.4 ? Math.max(0, (15 - t) / 0.6) : 1);
-      const g = (t >= 12 ? 0.075 : 0.045) * duck * env;
-      add(i, g * lpL, -0.6);
-      add(i, g * lpR, 0.6);
+      const a = 1 - Math.exp((-TAU * (sec.drone ? 500 : 1000)) / SR);
+      pl += a * (l - pl);
+      pr += a * (r - pr);
+      const g = 0.045 * (0.4 + 0.6 * duck) * Math.min(1, (t - 1.0) / 0.3);
+      add(i, g * pl, -0.6);
+      add(i, g * pr, 0.6);
     }
   }
 
-  // 장면 4: 입자가 반짝이는 아르페지오
-  const arp = [880, 1046.5, 1318.5, 1760, 1318.5, 1046.5];
-  for (let k = 0; k < 16; k++) blip(7.0 + k * 0.125, arp[k % arp.length], 0.07, 0.12, k % 2 ? 0.5 : -0.5);
-  // 장면 5 끝으로 갈수록 쌓이는 라이저
-  sweep(10.4, 12.0, 150, 9000, 0.45, (p) => p * p * p);
-
-  // --- 장면 6: 큰 임팩트 + 암호 해독 틱 소리 ---
-  impact(12.0, 1.2);
-  kick(12.0, 1);
-  for (let i = 0; i < 14; i++) blip(12.8 + i * 0.03, 3000 + (i % 4) * 400, 0.05, 0.015, (i % 2) * 0.6 - 0.3);
-  blip(13.25, 1318.5, 0.12, 0.8);
-  blip(13.25, 659.25, 0.1, 0.9);
+  // ---------- 6. FINAL (12.5 ~ 15초) ----------
+  glide(12.5, 12.95, 1800, 260, 0.14); // 조리개가 점으로 오므라듦
+  sweep(12.55, 13.0, 2000, 300, 0.1, (p) => Math.sin(p * Math.PI));
+  for (let i = 0; i < 6; i++) {
+    const t = 13.125 + i * 0.125; // 16분음표로 글자 밟기
+    blip(t, penta[i], 0.14, 0.14, (i - 2.5) * 0.15);
+    glide(t, t + 0.08, 320, 120, 0.1);
+  }
+  impact(14.0, 1.0); // 마침표 착지
+  {
+    const final = [110, 220, 261.63, 329.63, 493.88];
+    const phs = new Float64Array(10);
+    let pl = 0, pr = 0;
+    for (let i = idx(14.0); i < N; i++) {
+      const t = i / SR - 14.0;
+      let l = 0, r = 0;
+      final.forEach((nf, j) => {
+        phs[j * 2] += (nf * 0.995) / SR;
+        phs[j * 2 + 1] += (nf * 1.005) / SR;
+        l += saw(phs[j * 2]) + 0.5 * Math.sin(TAU * phs[j * 2] * 2);
+        r += saw(phs[j * 2 + 1]) + 0.5 * Math.sin(TAU * phs[j * 2 + 1] * 2);
+      });
+      const a = 1 - Math.exp((-TAU * (600 + 2400 * Math.exp(-t * 3))) / SR);
+      pl += a * (l - pl);
+      pr += a * (r - pr);
+      const env = Math.min(1, t / 0.01) * Math.exp(-t * 1.2);
+      add(i, 0.09 * env * pl, -0.5);
+      add(i, 0.09 * env * pr, 0.5);
+      add(i, 0.25 * env * Math.sin(TAU * 55 * t));
+    }
+  }
 
   // 믹스: 부드러운 클리핑 → 최대 -1dB 로 정규화 → 끝 페이드
   let peak = 0;
@@ -196,7 +270,7 @@ export function makeSoundtrack(path) {
     R[i] = Math.tanh(R[i] * 1.1);
     peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
   }
-  const norm = 0.79 / (peak || 1); // 약 -2dB (AAC 인코딩 후 클리핑 방지)
+  const norm = 0.72 / (peak || 1); // 약 -3dB (AAC 인코딩 후 클리핑 방지)
   const buf = Buffer.alloc(44 + N * 4);
   buf.write('RIFF', 0);
   buf.writeUInt32LE(36 + N * 4, 4);

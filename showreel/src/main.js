@@ -2,14 +2,14 @@
 // 장면을 추가/삭제/순서 변경하려면 아래 SCENES 목록만 고치면 됨
 
 import { W, H, FPS, C, rng, rgba, makeCanvas, FONT_MONO } from './lib.js';
-import ignition from './scenes/01-ignition.js';
-import kinetic from './scenes/02-kinetic-type.js';
-import geometry from './scenes/03-geometry.js';
-import particles from './scenes/04-particles.js';
-import dimension from './scenes/05-dimension.js';
-import outro from './scenes/06-outro.js';
+import hook from './scenes/01-hook.js';
+import typography from './scenes/02-typography.js';
+import shapes from './scenes/03-shapes.js';
+import camera from './scenes/04-camera.js';
+import colour from './scenes/05-colour.js';
+import final from './scenes/06-final.js';
 
-export const SCENES = [ignition, kinetic, geometry, particles, dimension, outro];
+export const SCENES = [hook, typography, shapes, camera, colour, final];
 export const DURATION = 15;
 export const TOTAL_FRAMES = DURATION * FPS;
 
@@ -57,8 +57,8 @@ function timecode(f) {
 }
 
 function drawHUD(ctx, f, t) {
-  if (t < 0.25 || t >= 12.0) return;
   const s = sceneAt(t);
+  if (s.hud === false) return; // 오프닝 훅과 엔딩 카드는 깨끗하게
   const idx = SCENES.indexOf(s);
   ctx.save();
   ctx.globalCompositeOperation = 'difference'; // 밝은 배경에서도 자동으로 반전돼 보임
@@ -90,11 +90,12 @@ function drawHUD(ctx, f, t) {
   ctx.restore();
 }
 
-function drawFinish(ctx, f) {
-  // 비네팅
+function drawFinish(ctx, f, t) {
+  // 비네팅 (장면마다 세기를 정할 수 있음. 밝은 엔딩 카드는 약하게)
+  const s = sceneAt(t);
   const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 1.05);
   v.addColorStop(0, 'rgba(0,0,0,0)');
-  v.addColorStop(1, 'rgba(0,0,0,0.42)');
+  v.addColorStop(1, `rgba(0,0,0,${s.vignette ?? 0.42})`);
   ctx.fillStyle = v;
   ctx.fillRect(0, 0, W, H);
   // 필름 그레인
@@ -110,6 +111,9 @@ function drawFinish(ctx, f) {
 // 프레임 하나를 그림. samples > 1 이면 셔터를 반쯤 연 것처럼 여러 순간을 겹쳐 모션 블러를 만듦
 export function renderFrame(f, samples = 1) {
   const t = f / FPS;
+  const s = sceneAt(t);
+  // 휩 팬처럼 아주 빠른 순간은 장면이 샘플 수를 더 요구할 수 있음
+  if (samples > 1 && s.samplesAt) samples = Math.max(samples, s.samplesAt(t - s.start));
   if (samples <= 1) {
     drawScene(out, t);
   } else {
@@ -123,7 +127,7 @@ export function renderFrame(f, samples = 1) {
     out.globalAlpha = 1;
   }
   drawHUD(out, f, t);
-  drawFinish(out, f);
+  drawFinish(out, f, t);
 }
 
 window.SHOWREEL = { renderFrame, TOTAL_FRAMES, FPS, W, H, canvas, C, rgba };
