@@ -1,0 +1,16 @@
+{
+  "name": "showreel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "코드로 만든 15초 모션그래픽 쇼릴 (1920x1080, 30fps)",
+  "scripts": {
+    "render": "node render.mjs",
+    "preview": "node render.mjs --preview"
+  },
+  "dependencies": {
+    "@fontsource/anton": "^5.1.0",
+    "@fontsource/space-mono": "^5.1.0",
+    "playwright": "1.56.1"
+  }
+}
