@@ -1,0 +1,15 @@
+{
+  "name": "ui-generate-toggle",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Generate 버튼이 Day/Week/Month 토글로 변신했다 돌아오는 15초 UI 마이크로 인터랙션 (1080x1080, 60fps)",
+  "scripts": {
+    "render": "node render.mjs",
+    "preview": "node render.mjs --preview"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "playwright": "1.56.1"
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Generate Toggle</title>
+  <style>
+    @font-face {
+      font-family: 'Inter';
+      src: url('/node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2') format('woff2');
+      font-weight: 500;
+    }
+    @font-face {
+      font-family: 'Inter';
+      src: url('/node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2') format('woff2');
+      font-weight: 600;
+    }
+    html, body { margin: 0; background: #fff; }
+    canvas { display: block; width: min(100vw, 100vh); height: auto; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <script type="module">
+    await Promise.all([document.fonts.load('500 20px Inter'), document.fonts.load('600 20px Inter')]);
+    const { renderFrame, TOTAL_FRAMES, FPS } = await import('./src/main.js');
+    window.READY = true;
+    // 주소 끝에 ?play 를 붙여 열면 브라우저에서 실시간 미리보기 (반복 재생)
+    if (location.search.includes('play')) {
+      const t0 = performance.now();
+      const loop = () => {
+        renderFrame(Math.floor(((performance.now() - t0) / 1000) * FPS) % TOTAL_FRAMES, 1);
+        requestAnimationFrame(loop);
+      };
+      loop();
+    }
+  </script>
+</body>
+</html>
